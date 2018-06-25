@@ -11,4 +11,4 @@ Encrypts/Decrypts files using AES.
 .NOTES
 
 
-Aythor of FileCryptorator script @cyberw01f
+Aythor of FileCrypter script @cyberw01f
