@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS 
-This script is for testing purposes only. Malicious use of this script is prohibitted. 
+This scriptis for testing purposes only. Malicious use of this script is prohibitted. 
 Encrypt or Decrypt a single file.
 
 .DESCRIPTION
-Encrypts files using AES.
+Encrypts or Decrypts files using AES.
 
 .NOTES
 Author of FileCryptorator script @cyb3rw01f
@@ -202,7 +202,7 @@ function Show-Menu
  
      Write-Host "1: Encrypt File"
      Write-Host "2: Decrypt File"
-     #Write-Host "3: Production - fireeyein.opr.statefarm.org"
+     
 }
  
 function Validate-Input
