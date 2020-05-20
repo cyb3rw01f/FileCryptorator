@@ -5,6 +5,6 @@ PowerShell script that encrypts files
 This script is for testing purposes only. Malicious use of this script is prohibitted. 
 
 ## DESCRIPTION
-Copies  select files from you home foler and copies them to a folder nameed crypt and encryptes them. The source files are not altered. Copies of them are made and the copy is encrypted. 
+Script will encrypt or decrypt a single file by default. The script can be altered to select mutiple files.
 
 
