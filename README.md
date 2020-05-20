@@ -1,14 +1,10 @@
 # FileCryptorator
-PowerShell script that can be used for encrypting/decrypting single files  
+PowerShell script that encrypts files    
 
-.SYNOPSIS 
-This scropt is for testing purposes only. Malicious use of this script is prohibitted. 
-Encrypt or Decrypt a single file.
+## SYNOPSIS 
+This script is for testing purposes only. Malicious use of this script is prohibitted. 
 
-.DESCRIPTION
-Encrypts/Decrypts files using AES.
-
-.NOTES
+## DESCRIPTION
+Cpopies select files from you home foler and copies them to a folder nameed crypt and encryptes them. The source files are not altered. Copies of them are made and the copy is encrypted. 
 
 
-Aythor of FileCrypter script @cyberw01f
