@@ -1,18 +1,14 @@
 <#
 .SYNOPSIS 
-This scropt is for testing purposes only. Malicious use of this script is prohibitted. 
+This script is for testing purposes only. Malicious use of this script is prohibitted. 
 Encrypt or Decrypt a single file.
 
 .DESCRIPTION
-Encrypts/Decrypts files using AES.
+Encrypts files using AES.
 
 .NOTES
-
-
-Aythor of FileCryptorator script @cyberw01f
-
+Author of FileCryptorator script @cyb3rw01f
 #>
-
 
 $logo = @"
 	=================================================================
@@ -21,7 +17,7 @@ $logo = @"
 			/ __| | | | '_ \ / _ \ '__\ \ /\ / / | | | | |_ 
 		       | (__| |_| | |_) |  __/ |   \ V  V /| |_| | |  _|
 			\___|\__, |_.__/ \___|_|    \_/\_/  \___/|_|_|  
-				|___/                                      
+			     |___/                                      
 		
 	==================================================================
 		 *     *    *     /\__/\  *    ---    *
