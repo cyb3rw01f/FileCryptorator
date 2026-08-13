@@ -26,6 +26,7 @@ File to encrypt or decrypt. Accepts a list and pipeline input (FullName).
 
 .PARAMETER Destination
 Output file, or a folder to write into. Defaults to next to the source.
+When more than one input file is given, this must be an existing folder.
 
 .PARAMETER Password
 SecureString password. If omitted, you are prompted. Encrypt prompts twice.
@@ -309,14 +310,25 @@ function ConvertFrom-SecureStringBytes {
     )
 
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+    $utf16 = $null
     try {
-        $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-        if ([string]::IsNullOrEmpty($plain)) {
+        if ($bstr -eq [IntPtr]::Zero) {
             throw 'Password cannot be empty.'
         }
-        return , [Text.Encoding]::UTF8.GetBytes($plain)
+
+        $utf16ByteCount = [Runtime.InteropServices.Marshal]::ReadInt32($bstr, -4)
+        if ($utf16ByteCount -le 0) {
+            throw 'Password cannot be empty.'
+        }
+
+        $utf16 = New-Object byte[] $utf16ByteCount
+        [Runtime.InteropServices.Marshal]::Copy($bstr, $utf16, 0, $utf16ByteCount)
+        return , [Text.Encoding]::Convert([Text.Encoding]::Unicode, [Text.Encoding]::UTF8, $utf16)
     }
     finally {
+        if ($utf16) {
+            [Array]::Clear($utf16, 0, $utf16.Length)
+        }
         if ($bstr -ne [IntPtr]::Zero) {
             [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
         }
@@ -335,20 +347,24 @@ function Test-SecureStringEqual {
         return $false
     }
 
-    $leftPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Left)
-    $rightPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Right)
+    $leftBytes = $null
+    $rightBytes = $null
     try {
-        $leftText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($leftPtr)
-        $rightText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($rightPtr)
-        return $leftText -ceq $rightText
+        $leftBytes = [byte[]](ConvertFrom-SecureStringBytes -SecureString $Left)
+        $rightBytes = [byte[]](ConvertFrom-SecureStringBytes -SecureString $Right)
+        if ($leftBytes.Length -ne $rightBytes.Length) {
+            return $false
+        }
+
+        $diff = 0
+        for ($i = 0; $i -lt $leftBytes.Length; $i++) {
+            $diff = $diff -bor ($leftBytes[$i] -bxor $rightBytes[$i])
+        }
+        return ($diff -eq 0)
     }
     finally {
-        if ($leftPtr -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($leftPtr)
-        }
-        if ($rightPtr -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($rightPtr)
-        }
+        if ($leftBytes) { [Array]::Clear($leftBytes, 0, $leftBytes.Length) }
+        if ($rightBytes) { [Array]::Clear($rightBytes, 0, $rightBytes.Length) }
     }
 }
 
@@ -661,13 +677,25 @@ function Write-AtomicFile {
     )
 
     $directory = [IO.Path]::GetDirectoryName($Path)
-    $tempPath = Join-Path $directory ([IO.Path]::GetFileName($Path) + '.partial')
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        $directory = (Get-Location -PSProvider FileSystem).ProviderPath
+    }
+
+    $tempPath = Join-Path $directory (
+        [IO.Path]::GetFileName($Path) + '.' + [guid]::NewGuid().ToString('N') + '.partial'
+    )
     try {
         [IO.File]::WriteAllBytes($tempPath, $Bytes)
-        if (Test-Path -LiteralPath $Path) {
-            Remove-Item -LiteralPath $Path -Force
+        if ([IO.File]::Exists($Path)) {
+            $backupPath = Join-Path $directory (
+                [IO.Path]::GetFileName($Path) + '.' + [guid]::NewGuid().ToString('N') + '.bak'
+            )
+            [IO.File]::Replace($tempPath, $Path, $backupPath)
+            Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
         }
-        Move-Item -LiteralPath $tempPath -Destination $Path
+        else {
+            [IO.File]::Move($tempPath, $Path)
+        }
     }
     catch {
         if (Test-Path -LiteralPath $tempPath) {
@@ -865,6 +893,13 @@ function Invoke-FileCryptoratorSelfTest {
         }
         Write-TestResult -Ok $overwriteFailed -Name 'refuse overwrite without -Force'
 
+        $replacePath = Join-Path $workRoot 'replace-me.bin'
+        [IO.File]::WriteAllBytes($replacePath, [byte[]](1, 2, 3))
+        Write-AtomicFile -Path $replacePath -Bytes ([byte[]](4, 5, 6, 7))
+        $replaced = [IO.File]::ReadAllBytes($replacePath)
+        $replaceOk = ($replaced.Length -eq 4 -and $replaced[0] -eq 4 -and $replaced[3] -eq 7)
+        Write-TestResult -Ok $replaceOk -Name 'atomic replace keeps new content'
+
         $passed = $script:selfTestPassed
         $failed = $script:selfTestFailed
         Write-Host "Result: $passed passed, $failed failed"
@@ -901,23 +936,21 @@ function Invoke-InteractiveSession {
                 $file = Get-FileFromDialog -Title 'Select a file to encrypt'
                 if (-not $file) {
                     Write-Host 'Cancelled.' -ForegroundColor Yellow
-                    return
+                    continue
                 }
                 $pw = if ($Password) { $Password } else { Read-EncryptionPassword -Confirm }
                 $out = Protect-UserFile -SourcePath $file -Destination $Destination -Password $pw -Iterations $Iterations -Force:$Force
                 Write-Host "Encrypted file: $out" -ForegroundColor Green
-                return
             }
             '^2$' {
                 $file = Get-FileFromDialog -Title 'Select a file to decrypt' -Filter "FileCryptorator (*.fcrypt)|*.fcrypt|All files (*.*)|*.*"
                 if (-not $file) {
                     Write-Host 'Cancelled.' -ForegroundColor Yellow
-                    return
+                    continue
                 }
                 $pw = if ($Password) { $Password } else { Read-EncryptionPassword }
                 $out = Unprotect-UserFile -SourcePath $file -Destination $Destination -Password $pw -Force:$Force
                 Write-Host "Decrypted file: $out" -ForegroundColor Green
-                return
             }
             '^[Qq]$' { return }
             default {
@@ -945,8 +978,44 @@ function Get-InferredMode {
     return 'Encrypt'
 }
 
+function Test-AnyPendingEncrypt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IEnumerable]$Paths,
+        [switch]$Encrypt,
+        [switch]$Decrypt
+    )
+
+    foreach ($item in $Paths) {
+        if ((Get-InferredMode -FilePath $item -Encrypt:$Encrypt -Decrypt:$Decrypt) -eq 'Encrypt') {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Assert-DestinationForBatch {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Count,
+        [string]$Destination
+    )
+
+    if ($Count -le 1 -or [string]::IsNullOrWhiteSpace($Destination)) {
+        return
+    }
+
+    $destFull = ConvertTo-FullFilesystemPath -InputPath $Destination
+    if (-not (Test-Path -LiteralPath $destFull -PathType Container)) {
+        throw "When processing multiple files, -Destination must be an existing folder: $destFull"
+    }
+}
+
     Initialize-FileCryptoratorDefaults
     $script:pendingPaths = New-Object System.Collections.Generic.List[string]
+    $script:FcPrevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version Latest
 }
 
 process {
@@ -958,64 +1027,72 @@ process {
 }
 
 end {
-    if ($MyInvocation.InvocationName -eq '.') {
-        return
-    }
-
-    $failed = 0
     try {
-        if ($SelfTest -or $PSCmdlet.ParameterSetName -eq 'SelfTest') {
-            $result = Invoke-FileCryptoratorSelfTest
-            if ($result.Failed -gt 0) {
-                throw 'Self-test failed.'
-            }
+        if ($MyInvocation.InvocationName -eq '.') {
             return
         }
 
-        if ($script:pendingPaths.Count -eq 0) {
-            Invoke-InteractiveSession
-            return
-        }
-
-        $firstMode = Get-InferredMode -FilePath $script:pendingPaths[0] -Encrypt:$Encrypt -Decrypt:$Decrypt
-        $needConfirm = ($firstMode -eq 'Encrypt')
-        $resolvedPassword = $Password
-        if (-not $resolvedPassword) {
-            $resolvedPassword = Read-EncryptionPassword -Confirm:$needConfirm
-        }
-        elseif ($resolvedPassword.Length -eq 0) {
-            throw 'Password cannot be empty.'
-        }
-
-        $index = 0
-        $total = $script:pendingPaths.Count
-        foreach ($item in $script:pendingPaths) {
-            $index++
-            $mode = Get-InferredMode -FilePath $item -Encrypt:$Encrypt -Decrypt:$Decrypt
-            Write-Progress -Activity 'FileCryptorator' -Status "$mode $item" -PercentComplete (($index / $total) * 100)
-            try {
-                if ($mode -eq 'Encrypt') {
-                    $out = Protect-UserFile -SourcePath $item -Destination $Destination -Password $resolvedPassword -Iterations $Iterations -Force:$Force
-                    Write-Host "Encrypted: $out"
+        $failed = 0
+        try {
+            if ($SelfTest -or $PSCmdlet.ParameterSetName -eq 'SelfTest') {
+                $result = Invoke-FileCryptoratorSelfTest
+                if ($result.Failed -gt 0) {
+                    throw 'Self-test failed.'
                 }
-                else {
-                    $out = Unprotect-UserFile -SourcePath $item -Destination $Destination -Password $resolvedPassword -Force:$Force
-                    Write-Host "Decrypted: $out"
+                return
+            }
+
+            if ($script:pendingPaths.Count -eq 0) {
+                Invoke-InteractiveSession
+                return
+            }
+
+            Assert-DestinationForBatch -Count $script:pendingPaths.Count -Destination $Destination
+
+            $needConfirm = Test-AnyPendingEncrypt -Paths $script:pendingPaths -Encrypt:$Encrypt -Decrypt:$Decrypt
+            $resolvedPassword = $Password
+            if (-not $resolvedPassword) {
+                $resolvedPassword = Read-EncryptionPassword -Confirm:$needConfirm
+            }
+            elseif ($resolvedPassword.Length -eq 0) {
+                throw 'Password cannot be empty.'
+            }
+
+            $index = 0
+            $total = $script:pendingPaths.Count
+            foreach ($item in $script:pendingPaths) {
+                $index++
+                $mode = Get-InferredMode -FilePath $item -Encrypt:$Encrypt -Decrypt:$Decrypt
+                Write-Progress -Activity 'FileCryptorator' -Status "$mode $item" -PercentComplete (($index / $total) * 100)
+                try {
+                    if ($mode -eq 'Encrypt') {
+                        $out = Protect-UserFile -SourcePath $item -Destination $Destination -Password $resolvedPassword -Iterations $Iterations -Force:$Force
+                        Write-Host "Encrypted: $out"
+                    }
+                    else {
+                        $out = Unprotect-UserFile -SourcePath $item -Destination $Destination -Password $resolvedPassword -Force:$Force
+                        Write-Host "Decrypted: $out"
+                    }
+                }
+                catch {
+                    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    $failed++
                 }
             }
-            catch {
-                Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-                $failed++
-            }
+            Write-Progress -Activity 'FileCryptorator' -Completed
         }
-        Write-Progress -Activity 'FileCryptorator' -Completed
-    }
-    catch {
-        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
-        throw
-    }
+        catch {
+            Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+            throw
+        }
 
-    if ($failed -gt 0) {
-        throw "$failed file(s) failed."
+        if ($failed -gt 0) {
+            throw "$failed file(s) failed."
+        }
+    }
+    finally {
+        if ($null -ne $script:FcPrevEap) {
+            $ErrorActionPreference = $script:FcPrevEap
+        }
     }
 }

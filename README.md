@@ -33,7 +33,7 @@ The original file is never deleted. Encrypt writes `filename.ext.fcrypt` next to
 | --- | --- |
 | `-Encrypt` / `-Decrypt` | Mode. Optional if the path ends in `.fcrypt` (decrypt) or not (encrypt). |
 | `-Path` | One or more files. Also accepts pipeline input. |
-| `-Destination` | Output file, or a folder to write into. |
+| `-Destination` | Output file, or a folder to write into. For multiple inputs this must be an existing folder. |
 | `-Password` | `SecureString`. Prompted if omitted. Encrypt asks twice. |
 | `-Iterations` | PBKDF2 rounds for new files (default 600000). Stored in the file header. |
 | `-Force` | Overwrite an existing output file. |
