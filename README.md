@@ -4,10 +4,6 @@ Password-based AES-256-GCM file encryption for Windows PowerShell 5.1 and later.
 
 This is a testing and learning tool. It is not a substitute for BitLocker, age, or gpg. Malicious use is prohibited.
 
-## What changed
-
-The old script used AES-CBC and `SHA256(password)` with no integrity check. That format is **not** compatible with this version. Re-encrypt anything you still have the plaintext for.
-
 ## Quick start
 
 ```powershell
